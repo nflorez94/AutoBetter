@@ -143,11 +143,22 @@ namespace AutoBetterScrapper.Servicios
             List<BetPossibility> Betlist = new();
             var parameters = _mapper.Map<BettingParameterDto>(await _repository.GetBettingParameters());
             var straightLostCount = 0;
-            foreach (var bet in history)
+            foreach (var bet in history.OrderBy(h=>h.Fecha))
             {
-                straightLostCount = bet.Estado.Equals("Perdida") ? straightLostCount++ : 0;
+                straightLostCount = bet.Estado.Equals("Perdida") ? straightLostCount+1 : 0;
             }
-            var nexBetAmount = history[0].Estado.Equals("Perdido") ? (int)(Math.Round((history[0].Apostado * parameters.IncreaseFactor))) : (int)Math.Round(parameters.MinimumBetAmount);
+            var nexBetAmount = parameters.MinimumBetAmount;
+            if (straightLostCount > 0)
+            {
+                for (int i = 0; i < straightLostCount; i++)
+                {
+                    nexBetAmount = nexBetAmount * parameters.IncreaseFactor;
+                }
+                if(nexBetAmount > parameters.MaximumBetAmount)
+                {
+                    nexBetAmount = parameters.MaximumBetAmount;
+                }
+            }
             if (straightLostCount < 5)
             {
                 for (int i = 0; i < parameters.SimultaneousBets; i++)
@@ -169,7 +180,7 @@ namespace AutoBetterScrapper.Servicios
                             if (betValidatedCheck)
                                 betApproved = true;
                             Betlist.Add(filteredBets[i]);
-                            this.UpdateBalance();
+                            await this.UpdateBalance();
                         }
                         catch (Exception ex)
                         {
