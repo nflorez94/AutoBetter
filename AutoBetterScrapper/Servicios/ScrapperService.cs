@@ -29,7 +29,7 @@ namespace AutoBetterScrapper.Servicios
             try
             {
                 var possibilities = await this.GetPossibilities(webDriver);
-                var history = await this.GetHistory(webDriver);
+                var history = await this.UpdateHistory(webDriver);
                 webDriver = await this.UpdateBalance(webDriver);
                 while (possibilities.Count() == 0)
                 {
@@ -38,7 +38,7 @@ namespace AutoBetterScrapper.Servicios
                         getHistory:
                         try
                         {
-                            history = await this.GetHistory(webDriver);
+                            history = await this.UpdateHistory(webDriver);
                             webDriver = await this.UpdateBalance(webDriver);
                         }
                         catch
@@ -69,6 +69,7 @@ namespace AutoBetterScrapper.Servicios
                             goto Start;
                         else
                         {
+                            await this.UpdateHistory(webDriver);
                             Thread.Sleep(await this.GetSleeptimeAfterBet(bets));
                         }
                     }
@@ -96,18 +97,18 @@ namespace AutoBetterScrapper.Servicios
                 var elapsedSecconds = int.Parse(bet.ElapsingTime.Split(":")[1]);
                 if (sleepTime == 0)
                 {
-                    sleepTime = (ruledSecconds - elapsedMinutesInSecconds + elapsedMinutesInSecconds) * 1000;
+                    sleepTime = (ruledSecconds - (elapsedMinutesInSecconds + elapsedSecconds)) * 1000;
                 }
                 else
                 {
-                    var calculatedNewTime = (ruledSecconds - elapsedMinutesInSecconds + elapsedMinutesInSecconds) * 1000;
+                    var calculatedNewTime = (ruledSecconds - (elapsedMinutesInSecconds + elapsedSecconds)) * 1000;
                     sleepTime = (Math.Min(sleepTime, calculatedNewTime));
                 }
             }
             return sleepTime;
         }
 
-        private async Task<List<HistoryRecordDto>> GetHistory(IWebDriver webDriver)
+        private async Task<List<HistoryRecordDto>> UpdateHistory(IWebDriver webDriver)
         {
             List<HistoryRecordDto> historycList = new();
             webDriver.Navigate().GoToUrl("https://www.rushbet.co/?page=sportsbook#bethistory");
