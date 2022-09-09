@@ -173,7 +173,7 @@ namespace AutoBetterScrapper.Servicios
                     {
                         try
                         {
-                            webDriver.FindElement(By.ClassName("mod-KambiBC-js-stake-input")).SendKeys($"{nexBetAmount}");
+                            webDriver.FindElement(By.ClassName("mod-KambiBC-js-stake-input")).SendKeys($"{(int)nexBetAmount}");
                             webDriver.FindElement(By.ClassName("mod-KambiBC-betslip__place-bet-btn")).Click();
                             Thread.Sleep(5000);
                             var betValidatedCheck = webDriver.FindElement(By.ClassName("mod-KambiBC-betslip-receipt-header__title")).Text.Equals("¡Tu apuesta se ha realizado!");
@@ -236,6 +236,7 @@ namespace AutoBetterScrapper.Servicios
         private Task<List<BetPossibility>> GetPossibilities(IWebDriver webDriver)
         {
             List<BetPossibility> possibilities = new();
+            Thread.Sleep(5000);
             var containers = webDriver.FindElements(By.ClassName("fkFtEG"));
             foreach (var container in containers)
             {
