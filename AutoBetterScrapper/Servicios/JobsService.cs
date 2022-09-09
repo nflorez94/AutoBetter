@@ -33,7 +33,6 @@ namespace AutoBetterScrapper.Servicios
                 var a = "No buttons";
             }
             var balance=webDriver.FindElement(By.ClassName("bCgcmK")).Text;
-            throw new NotImplementedException();
         }
 
         private async Task<IWebDriver> Login(IWebDriver webDriver)
