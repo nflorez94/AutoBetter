@@ -20,6 +20,9 @@ namespace AutoBetterScrapper.Repositories.Data
         Cuota,
 
         [Description("@Pago")]
-        Pago
+        Pago,
+
+        [Description("@Cant")]
+        CantidadFiltro
     }
 }

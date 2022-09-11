@@ -23,9 +23,18 @@ namespace AutoBetterScrapper.Servicios
 
         public async Task<IWebDriver> StartScrapping()
         {
+        Restart:
             IWebDriver webDriver = await this.StartScrapper();
+            var reloads = 0;
+            var maxReloads = 30;
             webDriver = await this.PrepareWebSite(webDriver);
-            Start:
+        Start:
+            reloads++;
+            if (reloads == maxReloads)
+            {
+                webDriver.Quit();
+                goto Restart;
+            }
             try
             {
                 var possibilities = await this.GetPossibilities(webDriver);
@@ -35,7 +44,13 @@ namespace AutoBetterScrapper.Servicios
                 {
                     while (history.Where(b => b.Estado.Equals("Pendiente")).Count() > 0)
                     {
-                        getHistory:
+                    getHistory:
+                        reloads++;
+                        if (reloads == maxReloads)
+                        {
+                            webDriver.Quit();
+                            goto Restart;
+                        }
                         try
                         {
                             history = await this.UpdateHistory(webDriver);
@@ -48,9 +63,15 @@ namespace AutoBetterScrapper.Servicios
                     }
                     webDriver = await this.UpdateBalance(webDriver);
 
-                    getPosibilities:
+                getPosibilities:
                     try
                     {
+                        reloads++;
+                        if (reloads == maxReloads)
+                        {
+                            webDriver.Quit();
+                            goto Restart;
+                        }
                         possibilities = await this.GetPossibilities(webDriver);
                     }
                     catch
@@ -64,13 +85,27 @@ namespace AutoBetterScrapper.Servicios
                     var verifiedBets = await this.ValidatePossibilites(possibilities, history);
                     if (verifiedBets.Count() > 0)
                     {
-                        var bets = await this.MakeBets(webDriver, verifiedBets, history);
-                        if (bets.Count() == 0)
-                            goto Start;
-                        else
+                        var attempts = 0;
+                    reAttempt:
+                        try
                         {
-                            await this.UpdateHistory(webDriver);
-                            Thread.Sleep(await this.GetSleeptimeAfterBet(bets));
+                            while (attempts <= 10)
+                            {
+                                var bets = await this.MakeBets(webDriver, verifiedBets, history);
+                                if (bets.Count() == 0)
+                                    goto Start;
+                                else
+                                {
+                                    await this.UpdateHistory(webDriver);
+                                    Thread.Sleep(await this.GetSleeptimeAfterBet(bets));
+                                    break;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            attempts++;
+                            goto reAttempt;
                         }
                     }
                 }
@@ -116,41 +151,48 @@ namespace AutoBetterScrapper.Servicios
         Start:
             try
             {
-                var rawHistory = webDriver.FindElements(By.ClassName("KambiBC-harmonized-my-bets-summary__item"));
-                for (var i = 0; i < 5; i++)
+                try
                 {
-                    var cuponNumber = rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__coupon-ref")).FindElement(By.ClassName("KambiBC-my-bets-summary__value")).Text;
-                    var state = "";
-                    var cuota = decimal.Parse(rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__value")).FindElement(By.ClassName("KambiBC-my-bets-summary__value")).Text.Replace(".", ","));
-                    var fecha = await getDate(rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__coupon-date")).Text);
-                    var apostado = decimal.Parse(rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__stake-value")).Text.Replace("$", string.Empty).Replace(".", string.Empty));
-                    var bottomRigth = rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__coupon-bottom-right"));
-                    var pago = 0M;
-                    if (bottomRigth.GetAttribute("innerHTML").Contains("Pago Pot"))
-                    {
-                        state = "Pendiente";
-                    }
-                    else if (bottomRigth.GetAttribute("innerHTML").Contains("Pago"))
-                    {
-                        pago = decimal.Parse(bottomRigth.FindElement(By.ClassName("KambiBC-my-bets-summary-payout__value")).Text.Replace("$", string.Empty).Replace(".", string.Empty));
-                        state = "Ganada";
-                    }
-                    else
-                        state = "Perdida";
-
-                    historycList.Add(new HistoryRecordDto
-                    {
-                        Cupon = cuponNumber,
-                        Estado = state,
-                        Cuota = cuota,
-                        Fecha = fecha,
-                        Apostado = apostado,
-                        Pago = pago
-                    });
+                    webDriver.FindElements(By.ClassName("mod-KambiBC-betslip-outcome__close-btn"))[0].Click();
                 }
-                foreach (var history in historycList)
+                catch
                 {
-                    await _repository.SaveHistory(history);
+                    var rawHistory = webDriver.FindElements(By.ClassName("KambiBC-harmonized-my-bets-summary__item"));
+                    for (var i = 0; i < 5; i++)
+                    {
+                        var cuponNumber = rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__coupon-ref")).FindElement(By.ClassName("KambiBC-my-bets-summary__value")).Text;
+                        var state = "";
+                        var cuota = decimal.Parse(rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__value")).FindElement(By.ClassName("KambiBC-my-bets-summary__value")).Text.Replace(".", ","));
+                        var fecha = await getDate(rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__coupon-date")).Text);
+                        var apostado = decimal.Parse(rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__stake-value")).Text.Replace("$", string.Empty).Replace(".", string.Empty));
+                        var bottomRigth = rawHistory[i].FindElement(By.ClassName("KambiBC-my-bets-summary__coupon-bottom-right"));
+                        var pago = 0M;
+                        if (bottomRigth.GetAttribute("innerHTML").Contains("Pago Pot"))
+                        {
+                            state = "Pendiente";
+                        }
+                        else if (bottomRigth.GetAttribute("innerHTML").Contains("Pago"))
+                        {
+                            pago = decimal.Parse(bottomRigth.FindElement(By.ClassName("KambiBC-my-bets-summary-payout__value")).Text.Replace("$", string.Empty).Replace(".", string.Empty));
+                            state = "Ganada";
+                        }
+                        else
+                            state = "Perdida";
+
+                        historycList.Add(new HistoryRecordDto
+                        {
+                            Cupon = cuponNumber,
+                            Estado = state,
+                            Cuota = cuota,
+                            Fecha = fecha,
+                            Apostado = apostado,
+                            Pago = pago
+                        });
+                    }
+                    foreach (var history in historycList)
+                    {
+                        await _repository.SaveHistory(history);
+                    }
                 }
             }
             catch (Exception ex)
@@ -190,114 +232,125 @@ namespace AutoBetterScrapper.Servicios
         private async Task<List<BetPossibility>> MakeBets(IWebDriver webDriver, List<BetPossibility> filteredBets, List<HistoryRecordDto> history)
         {
             List<BetPossibility> Betlist = new();
-            var parameters = _mapper.Map<BettingParameterDto>(await _repository.GetBettingParameters());
-            var straightLostCount = 0;
-            var historyOrdered = history.OrderBy(h => h.Fecha).ToList();
+            //try
+            //{
+            //    webDriver.FindElements(By.ClassName("mod-KambiBC-betslip-outcome__close-btn"))[0].Click();
+            //}
+            //catch
+            //{
+                var parameters = _mapper.Map<BettingParameterDto>(await _repository.GetBettingParameters());
+                var straightLostCount = 0;
+                var historyOrdered = history.OrderBy(h => h.Fecha).ToList();
 
                 foreach (var bet in history.OrderBy(h => h.Fecha))
                 {
-                    straightLostCount = bet.Estado.Equals("Perdida") ? straightLostCount + 1 : 0;
+                    straightLostCount = bet.Estado.Equals("Perdida") ? bet.Apostado==1000M?1:straightLostCount + 1 : 0;
                 }
-            var nexBetAmount = parameters.MinimumBetAmount;
-            if (straightLostCount > 0 && historyOrdered[history.Count() - 1].Apostado > parameters.MinimumBetAmount)
-            {
-                if (straightLostCount > 0)
+                var nexBetAmount = parameters.MinimumBetAmount;
+                if (straightLostCount > 0 && historyOrdered[history.Count() - 1].Apostado > parameters.MinimumBetAmount)
                 {
-                    for (int i = 0; i < straightLostCount; i++)
+                    if (straightLostCount > 0)
                     {
-                        nexBetAmount = nexBetAmount * parameters.IncreaseFactor;
+                        for (int i = 0; i < straightLostCount; i++)
+                        {
+                            nexBetAmount = nexBetAmount * parameters.IncreaseFactor;
+                        }
+                        if (nexBetAmount > parameters.MaximumBetAmount)
+                        {
+                            nexBetAmount = parameters.MaximumBetAmount;
+                        }
                     }
+                }
+                else if (straightLostCount > 0 && historyOrdered[history.Count() - 1].Apostado == parameters.MinimumBetAmount)
+                {
+                    nexBetAmount = nexBetAmount * parameters.IncreaseFactor;
                     if (nexBetAmount > parameters.MaximumBetAmount)
                     {
                         nexBetAmount = parameters.MaximumBetAmount;
                     }
                 }
-            }
-            else if(straightLostCount > 0 && historyOrdered[history.Count() - 1].Apostado == parameters.MinimumBetAmount)
-            {
-                nexBetAmount = nexBetAmount*parameters.IncreaseFactor;
-                if (nexBetAmount > parameters.MaximumBetAmount)
+                if (straightLostCount < 5)
                 {
-                    nexBetAmount = parameters.MaximumBetAmount;
-                }
-            }
-            if (straightLostCount < 5)
-            {
-                for (int i = 0; i < parameters.SimultaneousBets; i++)
-                {
-                    if (filteredBets[i].HomeBet < filteredBets[i].AwayBet)
+                    for (int i = 0; i < parameters.SimultaneousBets; i++)
                     {
-                        var containers = webDriver.FindElements(By.ClassName("fkFtEG"));
-                        foreach (var container in containers)
+                        if (filteredBets[i].HomeBet < filteredBets[i].AwayBet)
                         {
-
-                            var matches = container.FindElements(By.ClassName("KambiBC-event-item--sport-FOOTBALL"));
-                            foreach (var match in matches)
+                            var containers = webDriver.FindElements(By.ClassName("fkFtEG"));
+                            foreach (var container in containers)
                             {
-                                var participants = match.FindElements(By.ClassName("KambiBC-event-participants__name"));
-                                var homeTeam = participants[0].Text;
-                                var awayTeam = participants[1].Text;
-                                var bets = match.FindElements(By.ClassName("hLbRHz"));
-                                var homeBet = decimal.Parse(bets[0].Text.Replace(".", ","));
-                                var awayBet = decimal.Parse(bets[2].Text.Replace(".", ","));
-                                if (filteredBets[i].HomeTeam == homeTeam)
-                                {
-                                    bets[0].Click();
-                                }
 
+                                var matches = container.FindElements(By.ClassName("KambiBC-event-item--sport-FOOTBALL"));
+                                foreach (var match in matches)
+                                {
+                                    var participants = match.FindElements(By.ClassName("KambiBC-event-participants__name"));
+                                    var homeTeam = participants[0].Text;
+                                    var awayTeam = participants[1].Text;
+                                    var bets = match.FindElements(By.ClassName("hLbRHz"));
+                                    var homeBet = decimal.Parse(bets[0].Text.Replace(".", ","));
+                                    var awayBet = decimal.Parse(bets[2].Text.Replace(".", ","));
+                                    if (filteredBets[i].HomeTeam == homeTeam)
+                                    {
+                                        bets[0].Click();
+                                    }
+
+                                }
                             }
                         }
-                    }
-                    else
-                    {
-                        var containers = webDriver.FindElements(By.ClassName("fkFtEG"));
-                        foreach (var container in containers)
+                        else
                         {
-
-                            var matches = container.FindElements(By.ClassName("KambiBC-event-item--sport-FOOTBALL"));
-                            foreach (var match in matches)
+                            var containers = webDriver.FindElements(By.ClassName("fkFtEG"));
+                            foreach (var container in containers)
                             {
-                                var participants = match.FindElements(By.ClassName("KambiBC-event-participants__name"));
-                                var homeTeam = participants[0].Text;
-                                var awayTeam = participants[1].Text;
-                                var bets = match.FindElements(By.ClassName("hLbRHz"));
-                                var homeBet = decimal.Parse(bets[0].Text.Replace(".", ","));
-                                var awayBet = decimal.Parse(bets[2].Text.Replace(".", ","));
-                                if (filteredBets[i].HomeTeam == homeTeam)
-                                {
-                                    bets[2].Click();
-                                }
 
+                                var matches = container.FindElements(By.ClassName("KambiBC-event-item--sport-FOOTBALL"));
+                                foreach (var match in matches)
+                                {
+                                    var participants = match.FindElements(By.ClassName("KambiBC-event-participants__name"));
+                                    var homeTeam = participants[0].Text;
+                                    var awayTeam = participants[1].Text;
+                                    var bets = match.FindElements(By.ClassName("hLbRHz"));
+                                    var homeBet = decimal.Parse(bets[0].Text.Replace(".", ","));
+                                    var awayBet = decimal.Parse(bets[2].Text.Replace(".", ","));
+                                    if (filteredBets[i].HomeTeam == homeTeam)
+                                    {
+                                        bets[2].Click();
+                                    }
+
+                                }
                             }
                         }
-                    }
-                    var betApproved = false;
-                    var tryes = 0;
-                    while (!betApproved && tryes <= 10)
-                    {
-                        try
+                        var betApproved = false;
+                        var tryes = 0;
+                        while (!betApproved && tryes <= 10)
                         {
-                            webDriver.FindElement(By.ClassName("mod-KambiBC-js-stake-input")).SendKeys($"{(int)nexBetAmount}");
-                            webDriver.FindElement(By.ClassName("mod-KambiBC-betslip__place-bet-btn")).Click();
-                            Thread.Sleep(10000);
-                            var betValidatedCheck = webDriver.FindElement(By.ClassName("mod-KambiBC-betslip-receipt-header__title")).Text.Equals("¡Tu apuesta se ha realizado!");
-                            if (betValidatedCheck)
-                                betApproved = true;
-                            Betlist.Add(filteredBets[i]);
-                            await this.UpdateBalance(webDriver);
+                            try
+                            {
+                                Thread.Sleep(3000);
+                                webDriver.FindElement(By.ClassName("mod-KambiBC-js-stake-input")).SendKeys($"{(int)nexBetAmount}");
+                                Thread.Sleep(3000);
+                                webDriver.FindElement(By.ClassName("mod-KambiBC-betslip__place-bet-btn")).Click();
+                                Thread.Sleep(20000);
+                                var betValidatedCheck = webDriver.FindElement(By.ClassName("mod-KambiBC-betslip-receipt-header__title")).Text.Equals("¡Tu apuesta se ha realizado!");
+                                if (betValidatedCheck)
+                                    betApproved = true;
+                                Betlist.Add(filteredBets[i]);
+                                await this.UpdateBalance(webDriver);
+                            }
+                            catch (Exception ex)
+                            {
+                                webDriver.FindElement(By.ClassName("mod-KambiBC-betslip__approve-odds-btn")).Click();
+                                Thread.Sleep(3000);
+                                webDriver.FindElement(By.ClassName("mod-KambiBC-betslip__place-bet-btn")).Click();
+                                Thread.Sleep(20000);
+                                var betValidatedCheck = webDriver.FindElement(By.ClassName("mod-KambiBC-betslip-receipt-header__title")).Text.Equals("¡Tu apuesta se ha realizado!");
+                                if (betValidatedCheck)
+                                    betApproved = true;
+                                tryes++;
+                            }
                         }
-                        catch (Exception ex)
-                        {
-                            webDriver.FindElement(By.ClassName("mod-KambiBC-betslip__approve-odds-btn")).Click();
-                            webDriver.FindElement(By.ClassName("mod-KambiBC-betslip__place-bet-btn")).Click();
-                            var betValidatedCheck = webDriver.FindElement(By.ClassName("mod-KambiBC-betslip-receipt-header__title")).Text.Equals("¡Tu apuesta se ha realizado!");
-                            if (betValidatedCheck)
-                                betApproved = true;
-                            tryes++;
-                        }
-                    }
 
-                }
+                    }
+                //}
             }
             return Betlist;
         }
@@ -332,7 +385,7 @@ namespace AutoBetterScrapper.Servicios
             var elapsedMinutesInSecconds = int.Parse(possibility.ElapsingTime.Split(":")[0]) * 60;
             var elapsedSecconds = int.Parse(possibility.ElapsingTime.Split(":")[1]);
             decimal test = ((decimal)elapsedMinutesInSecconds + (decimal)elapsedSecconds) / (decimal)ruledSecconds;
-            if (test < 0.30M)
+            if (test < 0.50M)
                 return Task.FromResult(true);
             return Task.FromResult(false);
         }
@@ -341,7 +394,7 @@ namespace AutoBetterScrapper.Servicios
         {
             List<BetPossibility> possibilities = new();
             Thread.Sleep(5000);
-            getPosibilities:
+        getPosibilities:
             var containers = webDriver.FindElements(By.ClassName("fkFtEG"));
             foreach (var container in containers)
             {

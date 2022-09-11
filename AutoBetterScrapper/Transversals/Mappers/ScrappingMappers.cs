@@ -9,6 +9,7 @@ namespace AutoBetterScrapper.Transversals.Mappers
         public ScrappingMappers()
         {
             CreateMap<BettingParameter, BettingParameterDto>().ReverseMap();
+            CreateMap<Coupon, CouponDto>().ReverseMap();
         }
     }
 }
